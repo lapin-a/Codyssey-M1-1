@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AAPL 2024 시계열 대시보드</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
+<style>
+  :root{
+    --bg:#0b0f14; --panel:#121821; --panel-border:#232c38;
+    --text:#e6ecf3; --muted:#8593a6; --accent:#3ddc97; --accent2:#5b8def; --warn:#e0a458;
+    --font: -apple-system, "Pretendard", "Malgun Gothic", sans-serif;
+  }
+  @media (prefers-color-scheme: light){
+    :root:not([data-theme="dark"]){
+      --bg:#f5f7fa; --panel:#ffffff; --panel-border:#dfe5ec;
+      --text:#1a2230; --muted:#5b6675; --accent:#0f9d6b; --accent2:#2f6fed; --warn:#b8791f;
+    }
+  }
+  :root[data-theme="dark"]{
+    --bg:#0b0f14; --panel:#121821; --panel-border:#232c38;
+    --text:#e6ecf3; --muted:#8593a6; --accent:#3ddc97; --accent2:#5b8def; --warn:#e0a458;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0; background:var(--bg); color:var(--text); font-family:var(--font);
+    padding:32px 20px 60px;
+  }
+  .wrap{max-width:980px; margin:0 auto;}
+  header{margin-bottom:28px;}
+  header .eyebrow{color:var(--accent); font-size:13px; letter-spacing:0.02em; margin-bottom:6px;}
+  header h1{font-size:26px; margin:0 0 8px; font-weight:650; letter-spacing:-0.01em;}
+  header p{color:var(--muted); font-size:14px; line-height:1.6; margin:0; max-width:640px;}
+
+  .controls{
+    display:flex; gap:14px; flex-wrap:wrap; align-items:flex-end;
+    background:var(--panel); border:1px solid var(--panel-border); border-radius:12px;
+    padding:18px 20px; margin:24px 0;
+  }
+  .field{display:flex; flex-direction:column; gap:6px;}
+  .field label{font-size:12px; color:var(--muted);}
+  .field input, .field select{
+    background:var(--bg); border:1px solid var(--panel-border); color:var(--text);
+    border-radius:7px; padding:8px 10px; font-size:14px; font-family:inherit;
+  }
+  .presets{display:flex; gap:6px; flex-wrap:wrap;}
+  .presets button{
+    background:transparent; border:1px solid var(--panel-border); color:var(--muted);
+    border-radius:20px; padding:6px 14px; font-size:12.5px; cursor:pointer; font-family:inherit;
+  }
+  .presets button:hover, .presets button.active{border-color:var(--accent); color:var(--accent);}
+
+  .kpis{display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:12px; margin:22px 0;}
+  .kpi{background:var(--panel); border:1px solid var(--panel-border); border-radius:12px; padding:16px 18px;}
+  .kpi .label{font-size:12px; color:var(--muted); margin-bottom:6px;}
+  .kpi .value{font-size:21px; font-weight:650; letter-spacing:-0.01em;}
+  .kpi .sub{font-size:12px; margin-top:4px;}
+  .up{color:var(--accent);} .down{color:#e05656;}
+
+  .panel{
+    background:var(--panel); border:1px solid var(--panel-border); border-radius:12px;
+    padding:18px 20px 8px; margin-bottom:20px;
+  }
+  .panel h2{font-size:14px; font-weight:600; margin:0 0 14px; color:var(--text);}
+  .chart-box{position:relative; height:260px;}
+
+  footer{color:var(--muted); font-size:12px; line-height:1.7; margin-top:30px; border-top:1px solid var(--panel-border); padding-top:16px;}
+  footer a{color:var(--accent2);}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="eyebrow">시계열 데이터 분석 과제 · 보너스: 서비스화</div>
+    <h1>AAPL 2024 일별 시세 대시보드</h1>
+    <p>기간을 바꿔가며 종가·20일 이동평균·변동성 추이를 탐색할 수 있습니다. 데이터는 2024-01-02~2024-12-31, 총 252개 거래일 기준입니다. 시세 데이터는 1차 거래소 원문이 아닌 공개 2차 가공 데이터셋을 사용했습니다.</p>
+  </header>
+
+  <div class="controls">
+    <div class="field">
+      <label for="startDate">시작일</label>
+      <input type="date" id="startDate">
+    </div>
+    <div class="field">
+      <label for="endDate">종료일</label>
+      <input type="date" id="endDate">
+    </div>
+    <div class="field">
+      <label>&nbsp;</label>
+      <div class="presets">
+        <button data-range="1m">최근 1개월</button>
+        <button data-range="3m">최근 3개월</button>
+        <button data-range="6m">최근 6개월</button>
+        <button data-range="all" class="active">전체</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="kpis" id="kpis"></div>
+
+  <div class="panel">
+    <h2>종가 &amp; 20일 이동평균</h2>
+    <div class="chart-box"><canvas id="priceChart"></canvas></div>
+  </div>
+
+  <div class="panel">
+    <h2>20일 롤링 변동성 (일간 수익률 표준편차)</h2>
+    <div class="chart-box"><canvas id="volChart"></canvas></div>
+  </div>
+
+  <footer>
+    데이터 출처: 공개 시장데이터 2차 가공 (HuggingFace 게시 데이터셋). 1차 거래소 원문이 아님을 명시합니다.
+    이 대시보드는 시계열 분석 과제의 서비스화 보너스 항목으로 제작되었으며, 투자 조언이 아닌 교육용 분석 자료입니다.
+  </footer>
+</div>
+
+<script>
+const RAW = [{"Date": "2024-01-02", "Close": 184.73, "MA20": "", "Volatility20": ""}, {"Date": "2024-01-03", "Close": 183.35, "MA20": "", "Volatility20": ""}, {"Date": "2024-01-04", "Close": 181.02, "MA20": "", "Volatility20": ""}, {"Date": "2024-01-05", "Close": 180.3, "MA20": "", "Volatility20": ""}, {"Date": "2024-01-08", "Close": 184.66, "MA20": "", "Volatility20": ""}, {"Date": "2024-01-09", "Close": 184.24, "MA20": "", "Volatility20": ""}, {"Date": "2024-01-10", "Close": 185.28, "MA20": "", "Volatility20": ""}, {"Date": "2024-01-11", "Close": 184.69, "MA20": "", "Volatility20": ""}, {"Date": "2024-01-12", "Close": 185.01, "MA20": "", "Volatility20": ""}, {"Date": "2024-01-16", "Close": 182.73, "MA20": "", "Volatility20": ""}, {"Date": "2024-01-17", "Close": 181.79, "MA20": "", "Volatility20": ""}, {"Date": "2024-01-18", "Close": 187.71, "MA20": "", "Volatility20": ""}, {"Date": "2024-01-19", "Close": 190.63, "MA20": "", "Volatility20": ""}, {"Date": "2024-01-22", "Close": 192.94, "MA20": "", "Volatility20": ""}, {"Date": "2024-01-23", "Close": 194.23, "MA20": "", "Volatility20": ""}, {"Date": "2024-01-24", "Close": 193.55, "MA20": "", "Volatility20": ""}, {"Date": "2024-01-25", "Close": 193.22, "MA20": "", "Volatility20": ""}, {"Date": "2024-01-26", "Close": 191.48, "MA20": "", "Volatility20": ""}, {"Date": "2024-01-29", "Close": 190.8, "MA20": "", "Volatility20": ""}, {"Date": "2024-01-30", "Close": 187.12, "MA20": 186.974, "Volatility20": ""}, {"Date": "2024-01-31", "Close": 183.5, "MA20": 186.9125, "Volatility20": 0.0133658864977502}, {"Date": "2024-02-01", "Close": 185.95, "MA20": 187.0425, "Volatility20": 0.0135830170990139}, {"Date": "2024-02-02", "Close": 184.94, "MA20": 187.2385, "Volatility20": 0.0132968433596104}, {"Date": "2024-02-05", "Close": 186.77, "MA20": 187.562, "Volatility20": 0.0133765974041051}, {"Date": "2024-02-06", "Close": 188.38, "MA20": 187.748, "Volatility20": 0.012428131750088}, {"Date": "2024-02-07", "Close": 188.49, "MA20": 187.9605, "Volatility20": 0.0124040502982379}, {"Date": "2024-02-08", "Close": 187.4, "MA20": 188.0665, "Volatility20": 0.012452298326252}, {"Date": "2024-02-09", "Close": 188.17, "MA20": 188.2405, "Volatility20": 0.0124411226465388}, {"Date": "2024-02-12", "Close": 186.48, "MA20": 188.314, "Volatility20": 0.012637344762688}, {"Date": "2024-02-13", "Close": 184.37, "MA20": 188.396, "Volatility20": 0.0125854962548778}, {"Date": "2024-02-14", "Close": 183.49, "MA20": 188.481, "Volatility20": 0.0125769719279282}, {"Date": "2024-02-15", "Close": 183.2, "MA20": 188.2555, "Volatility20": 0.0100682898326422}, {"Date": "2024-02-16", "Close": 181.65, "MA20": 187.8065, "Volatility20": 0.0093772970628957}, {"Date": "2024-02-20", "Close": 180.91, "MA20": 187.205, "Volatility20": 0.0087380315592322}, {"Date": "2024-02-21", "Close": 181.66, "MA20": 186.5765, "Volatility20": 0.0086045546920144}, {"Date": "2024-02-22", "Close": 183.71, "MA20": 186.0845, "Volatility20": 0.009201274473556}, {"Date": "2024-02-23", "Close": 181.86, "MA20": 185.5165, "Volatility20": 0.009349058399095}, {"Date": "2024-02-26", "Close": 180.51, "MA20": 184.968, "Volatility20": 0.0093020017076522}, {"Date": "2024-02-27", "Close": 181.97, "MA20": 184.5265, "Volatility20": 0.00961813027129}, {"Date": "2024-02-28", "Close": 180.77, "MA20": 184.209, "Volatility20": 0.0088259462506708}, {"Date": "2024-02-29", "Close": 180.1, "MA20": 184.039, "Volatility20": 0.0078138991750748}, {"Date": "2024-03-01", "Close": 179.01, "MA20": 183.692, "Volatility20": 0.0071247381133022}, {"Date": "2024-03-04", "Close": 174.47, "MA20": 183.1685, "Volatility20": 0.0088363950467981}, {"Date": "2024-03-05", "Close": 169.51, "MA20": 182.3055, "Volatility20": 0.0100006480676973}, {"Date": "2024-03-06", "Close": 168.51, "MA20": 181.312, "Volatility20": 0.0094900000664823}, {"Date": "2024-03-07", "Close": 168.39, "MA20": 180.307, "Volatility20": 0.0094505073602706}, {"Date": "2024-03-08", "Close": 170.11, "MA20": 179.4425, "Volatility20": 0.0100878677436938}, {"Date": "2024-03-11", "Close": 172.13, "MA20": 178.6405, "Volatility20": 0.01058519356543}, {"Date": "2024-03-12", "Close": 172.61, "MA20": 177.947, "Volatility20": 0.0106435940601715}, {"Date": "2024-03-13", "Close": 170.51, "MA20": 177.254, "Volatility20": 0.0106768660320501}, {"Date": "2024-03-14", "Close": 172.38, "MA20": 176.6985, "Volatility20": 0.0111734496502236}, {"Date": "2024-03-15", "Close": 172.0, "MA20": 176.1385, "Volatility20": 0.0111699766255887}, {"Date": "2024-03-18", "Close": 173.09, "MA20": 175.7105, "Volatility20": 0.0112849779096773}, {"Date": "2024-03-19", "Close": 175.45, "MA20": 175.4375, "Volatility20": 0.0118243834473338}, {"Date": "2024-03-20", "Close": 178.03, "MA20": 175.256, "Volatility20": 0.0123136709607164}, {"Date": "2024-03-21", "Close": 170.75, "MA20": 174.608, "Volatility20": 0.0148534770842467}, {"Date": "2024-03-22", "Close": 171.66, "MA20": 174.098, "Volatility20": 0.0148965057932283}, {"Date": "2024-03-25", "Close": 170.23, "MA20": 173.584, "Volatility20": 0.0149127754611337}, {"Date": "2024-03-26", "Close": 169.1, "MA20": 172.9405, "Volatility20": 0.0147079625648952}, {"Date": "2024-03-27", "Close": 172.69, "MA20": 172.5365, "Volatility20": 0.0156887604722344}, {"Date": "2024-03-28", "Close": 170.86, "MA20": 172.0745, "Volatility20": 0.0157996479228306}, {"Date": "2024-04-01", "Close": 169.42, "MA20": 171.595, "Volatility20": 0.0158365684276379}, {"Date": "2024-04-02", "Close": 168.23, "MA20": 171.28300000000002, "Volatility20": 0.0149575924169237}, {"Date": "2024-04-03", "Close": 169.04, "MA20": 171.2595, "Volatility20": 0.013619657619485}, {"Date": "2024-04-04", "Close": 168.21, "MA20": 171.24450000000002, "Volatility20": 0.0135990759021548}, {"Date": "2024-04-05", "Close": 168.97, "MA20": 171.27349999999998, "Volatility20": 0.0136349100214144}, {"Date": "2024-04-08", "Close": 167.84, "MA20": 171.16000000000005, "Volatility20": 0.0135087502295061}, {"Date": "2024-04-09", "Close": 169.06, "MA20": 171.00650000000002, "Volatility20": 0.0133231673636841}, {"Date": "2024-04-10", "Close": 167.18, "MA20": 170.735, "Volatility20": 0.0134872104979116}, {"Date": "2024-04-11", "Close": 174.41, "MA20": 170.93, "Volatility20": 0.016531055226823}, {"Date": "2024-04-12", "Close": 175.91, "MA20": 171.1065, "Volatility20": 0.0164662633184839}, {"Date": "2024-04-15", "Close": 172.07, "MA20": 171.11, "Volatility20": 0.0172426527007807}, {"Date": "2024-04-16", "Close": 168.77, "MA20": 170.894, "Volatility20": 0.0176995435578451}, {"Date": "2024-04-17", "Close": 167.39, "MA20": 170.491, "Volatility20": 0.0174125869844207}, {"Date": "2024-04-18", "Close": 166.44, "MA20": 169.9115, "Volatility20": 0.0169614034751853}, {"Date": "2024-04-19", "Close": 164.41, "MA20": 169.59449999999998, "Volatility20": 0.0146656598791956}, {"Date": "2024-04-22", "Close": 165.24, "MA20": 169.2735, "Volatility20": 0.0146586122723743}, {"Date": "2024-04-23", "Close": 166.3, "MA20": 169.077, "Volatility20": 0.0146838352461271}, {"Date": "2024-04-24", "Close": 168.41, "MA20": 169.0425, "Volatility20": 0.014931652621302}, {"Date": "2024-04-25", "Close": 169.28, "MA20": 168.872, "Volatility20": 0.0141346885588542}, {"Date": "2024-04-26", "Close": 168.69, "MA20": 168.7635, "Volatility20": 0.0139664307103724}, {"Date": "2024-04-29", "Close": 172.87, "MA20": 168.93599999999998, "Volatility20": 0.0149214624482429}, {"Date": "2024-04-30", "Close": 169.72, "MA20": 169.0105, "Volatility20": 0.0154437977851627}, {"Date": "2024-05-01", "Close": 168.69, "MA20": 168.993, "Volatility20": 0.0154774432025825}, {"Date": "2024-05-02", "Close": 172.41, "MA20": 169.203, "Volatility20": 0.0161845176506001}, {"Date": "2024-05-03", "Close": 182.72, "MA20": 169.8905, "Volatility20": 0.0208118515068876}, {"Date": "2024-05-06", "Close": 181.05, "MA20": 170.551, "Volatility20": 0.0208859690178794}, {"Date": "2024-05-07", "Close": 181.74, "MA20": 171.185, "Volatility20": 0.0208717804990074}, {"Date": "2024-05-08", "Close": 182.08, "MA20": 171.93, "Volatility20": 0.0205823034905857}, {"Date": "2024-05-09", "Close": 183.9, "MA20": 172.40449999999998, "Volatility20": 0.0185258745980065}, {"Date": "2024-05-10", "Close": 182.64, "MA20": 172.741, "Volatility20": 0.0185938787165456}, {"Date": "2024-05-13", "Close": 185.86, "MA20": 173.4305, "Volatility20": 0.0180122262496767}, {"Date": "2024-05-14", "Close": 187.01, "MA20": 174.3425, "Volatility20": 0.0171664992802178}, {"Date": "2024-05-15", "Close": 189.29, "MA20": 175.4375, "Volatility20": 0.0169286019387207}, {"Date": "2024-05-16", "Close": 189.41, "MA20": 176.58599999999998, "Volatility20": 0.0167515601544895}, {"Date": "2024-05-17", "Close": 189.44, "MA20": 177.8375, "Volatility20": 0.0162413602355977}, {"Date": "2024-05-20", "Close": 190.61, "MA20": 179.10600000000002, "Volatility20": 0.016235332837984}, {"Date": "2024-05-21", "Close": 191.92, "MA20": 180.387, "Volatility20": 0.0162343577691771}, {"Date": "2024-05-22", "Close": 190.47, "MA20": 181.49, "Volatility20": 0.0165102672182395}, {"Date": "2024-05-23", "Close": 186.46, "MA20": 182.349, "Volatility20": 0.0176094095523892}, {"Date": "2024-05-24", "Close": 189.55, "MA20": 183.392, "Volatility20": 0.0176724028133419}, {"Date": "2024-05-28", "Close": 189.56, "MA20": 184.2265, "Volatility20": 0.017145984642944}, {"Date": "2024-05-29", "Close": 189.86, "MA20": 185.2335, "Volatility20": 0.0163001507794233}, {"Date": "2024-05-30", "Close": 190.86, "MA20": 186.342, "Volatility20": 0.0160630652786174}, {"Date": "2024-05-31", "Close": 191.82, "MA20": 187.3125, "Volatility20": 0.0156303401882019}, {"Date": "2024-06-03", "Close": 193.59, "MA20": 187.856, "Volatility20": 0.009106278157495}, {"Date": "2024-06-04", "Close": 193.91, "MA20": 188.499, "Volatility20": 0.0086621579302278}, {"Date": "2024-06-05", "Close": 195.43, "MA20": 189.1835, "Volatility20": 0.0087170834927289}, {"Date": "2024-06-06", "Close": 194.04, "MA20": 189.7815, "Volatility20": 0.0090403372478354}, {"Date": "2024-06-07", "Close": 196.45, "MA20": 190.409, "Volatility20": 0.0091514800507934}, {"Date": "2024-06-10", "Close": 192.68, "MA20": 190.911, "Volatility20": 0.0102277778249833}, {"Date": "2024-06-11", "Close": 206.68, "MA20": 191.952, "Volatility20": 0.0185022330495143}, {"Date": "2024-06-12", "Close": 212.59, "MA20": 193.231, "Volatility20": 0.0192120969986193}, {"Date": "2024-06-13", "Close": 213.76, "MA20": 194.4545, "Volatility20": 0.0191678158053199}, {"Date": "2024-06-14", "Close": 212.01, "MA20": 195.5845, "Volatility20": 0.0194042579832596}, {"Date": "2024-06-17", "Close": 216.18, "MA20": 196.9215, "Volatility20": 0.0195938623584915}, {"Date": "2024-06-18", "Close": 213.81, "MA20": 198.0815, "Volatility20": 0.0199933607040059}, {"Date": "2024-06-20", "Close": 209.21, "MA20": 198.946, "Volatility20": 0.020910549175593}, {"Date": "2024-06-21", "Close": 207.02, "MA20": 199.7735, "Volatility20": 0.0210090218470409}, {"Date": "2024-06-24", "Close": 207.67, "MA20": 200.834, "Volatility20": 0.0201464009332563}, {"Date": "2024-06-25", "Close": 208.6, "MA20": 201.7865, "Volatility20": 0.0199802029522117}, {"Date": "2024-06-26", "Close": 212.77, "MA20": 202.947, "Volatility20": 0.020217188840572}, {"Date": "2024-06-27", "Close": 213.62, "MA20": 204.135, "Volatility20": 0.0201967530652655}, {"Date": "2024-06-28", "Close": 210.15, "MA20": 205.0995, "Volatility20": 0.0208070708691029}, {"Date": "2024-07-01", "Close": 216.26, "MA20": 206.3215, "Volatility20": 0.0214907221327789}, {"Date": "2024-07-02", "Close": 219.77, "MA20": 207.6305, "Volatility20": 0.0215989389851575}, {"Date": "2024-07-03", "Close": 221.05, "MA20": 208.9875, "Volatility20": 0.0215689936289699}, {"Date": "2024-07-05", "Close": 225.83, "MA20": 210.5075, "Volatility20": 0.0218231412553009}, {"Date": "2024-07-08", "Close": 227.31, "MA20": 212.171, "Volatility20": 0.0215546090189713}, {"Date": "2024-07-09", "Close": 228.16, "MA20": 213.7565, "Volatility20": 0.0215516996130088}, {"Date": "2024-07-10", "Close": 232.45, "MA20": 215.745, "Volatility20": 0.0207124295522249}, {"Date": "2024-07-11", "Close": 227.06, "MA20": 216.764, "Volatility20": 0.0158863336259538}, {"Date": "2024-07-12", "Close": 230.02, "MA20": 217.6355, "Volatility20": 0.0150187415238053}, {"Date": "2024-07-15", "Close": 233.87, "MA20": 218.641, "Volatility20": 0.0152835210283689}, {"Date": "2024-07-16", "Close": 234.29, "MA20": 219.755, "Volatility20": 0.0150038296021156}, {"Date": "2024-07-17", "Close": 228.36, "MA20": 220.364, "Volatility20": 0.0160426804715971}, {"Date": "2024-07-18", "Close": 223.67, "MA20": 220.85700000000003, "Volatility20": 0.0166099307861513}, {"Date": "2024-07-19", "Close": 223.8, "MA20": 221.58650000000003, "Volatility20": 0.0156431155702614}, {"Date": "2024-07-22", "Close": 223.46, "MA20": 222.4085, "Volatility20": 0.0153479785674531}, {"Date": "2024-07-23", "Close": 224.5, "MA20": 223.25, "Volatility20": 0.0153475572712131}, {"Date": "2024-07-24", "Close": 218.05, "MA20": 223.72250000000005, "Volatility20": 0.0170021311762031}, {"Date": "2024-07-25", "Close": 217.0, "MA20": 223.93400000000003, "Volatility20": 0.0165466507341157}, {"Date": "2024-07-26", "Close": 217.47, "MA20": 224.1265, "Volatility20": 0.0165349473934398}, {"Date": "2024-07-29", "Close": 217.75, "MA20": 224.5065, "Volatility20": 0.016028296612795}, {"Date": "2024-07-30", "Close": 218.31, "MA20": 224.609, "Volatility20": 0.0147043057715266}, {"Date": "2024-07-31", "Close": 221.58, "MA20": 224.6995, "Volatility20": 0.0146366711098122}, {"Date": "2024-08-01", "Close": 217.87, "MA20": 224.5405, "Volatility20": 0.0150691393655684}, {"Date": "2024-08-02", "Close": 219.36, "MA20": 224.217, "Volatility20": 0.0142617112664957}, {"Date": "2024-08-05", "Close": 208.8, "MA20": 223.2915, "Volatility20": 0.0175338022989003}, {"Date": "2024-08-06", "Close": 206.76, "MA20": 222.2215, "Volatility20": 0.0174764448868221}, {"Date": "2024-08-07", "Close": 209.35, "MA20": 221.06650000000005, "Volatility20": 0.0170829127521314}, {"Date": "2024-08-08", "Close": 212.83, "MA20": 220.355, "Volatility20": 0.0171809142098777}, {"Date": "2024-08-09", "Close": 215.75, "MA20": 219.6415, "Volatility20": 0.0172153303050423}, {"Date": "2024-08-12", "Close": 217.29, "MA20": 218.8125, "Volatility20": 0.0167623247918705}, {"Date": "2024-08-13", "Close": 221.03, "MA20": 218.1495, "Volatility20": 0.0173639840552728}, {"Date": "2024-08-14", "Close": 221.48, "MA20": 217.8055, "Volatility20": 0.0165528261241722}, {"Date": "2024-08-15", "Close": 224.47, "MA20": 217.8455, "Volatility20": 0.0162278090185531}, {"Date": "2024-08-16", "Close": 225.8, "MA20": 217.9455, "Volatility20": 0.0162765040423486}, {"Date": "2024-08-19", "Close": 225.64, "MA20": 218.0545, "Volatility20": 0.0162720287499383}, {"Date": "2024-08-20", "Close": 226.26, "MA20": 218.1425, "Volatility20": 0.0162526861445556}, {"Date": "2024-08-21", "Close": 226.15, "MA20": 218.5475, "Volatility20": 0.0147335706877349}, {"Date": "2024-08-22", "Close": 224.28, "MA20": 218.9115, "Volatility20": 0.0148366653391606}, {"Date": "2024-08-23", "Close": 226.59, "MA20": 219.3675, "Volatility20": 0.0149594123036343}, {"Date": "2024-08-26", "Close": 226.93, "MA20": 219.82650000000004, "Volatility20": 0.0149588310742337}, {"Date": "2024-08-27", "Close": 227.78, "MA20": 220.3, "Volatility20": 0.0149627721898759}, {"Date": "2024-08-28", "Close": 226.24, "MA20": 220.533, "Volatility20": 0.0147766613527529}, {"Date": "2024-08-29", "Close": 229.54, "MA20": 221.1165, "Volatility20": 0.0144370357217563}, {"Date": "2024-08-30", "Close": 228.75, "MA20": 221.586, "Volatility20": 0.0144654006926311}, {"Date": "2024-09-03", "Close": 222.53, "MA20": 222.2725, "Volatility20": 0.0109629179777397}, {"Date": "2024-09-04", "Close": 220.61, "MA20": 222.965, "Volatility20": 0.0108943080411723}, {"Date": "2024-09-05", "Close": 222.14, "MA20": 223.6045, "Volatility20": 0.0107154511703982}, {"Date": "2024-09-06", "Close": 220.58, "MA20": 223.992, "Volatility20": 0.0104369135220619}, {"Date": "2024-09-09", "Close": 220.67, "MA20": 224.238, "Volatility20": 0.0100571094085178}, {"Date": "2024-09-10", "Close": 219.87, "MA20": 224.367, "Volatility20": 0.0100091701629886}, {"Date": "2024-09-11", "Close": 222.42, "MA20": 224.4365, "Volatility20": 0.0095898248562078}, {"Date": "2024-09-12", "Close": 222.53, "MA20": 224.48900000000003, "Volatility20": 0.0095818159639004}, {"Date": "2024-09-13", "Close": 222.26, "MA20": 224.37850000000003, "Volatility20": 0.0090642685945224}, {"Date": "2024-09-16", "Close": 216.08, "MA20": 223.8925, "Volatility20": 0.0107885972391454}, {"Date": "2024-09-17", "Close": 216.55, "MA20": 223.438, "Volatility20": 0.0108279581122488}, {"Date": "2024-09-18", "Close": 220.45, "MA20": 223.14750000000004, "Volatility20": 0.0116839464183923}, {"Date": "2024-09-19", "Close": 228.62, "MA20": 223.271, "Volatility20": 0.0144900045539701}, {"Date": "2024-09-20", "Close": 227.95, "MA20": 223.4545, "Volatility20": 0.0143658432070351}, {"Date": "2024-09-23", "Close": 226.22, "MA20": 223.436, "Volatility20": 0.0143072204429416}, {"Date": "2024-09-24", "Close": 227.12, "MA20": 223.4455, "Volatility20": 0.0143314676793566}, {"Date": "2024-09-25", "Close": 226.12, "MA20": 223.3625, "Volatility20": 0.0143393684521126}, {"Date": "2024-09-26", "Close": 227.27, "MA20": 223.414, "Volatility20": 0.014301687348388}, {"Date": "2024-09-27", "Close": 227.54, "MA20": 223.314, "Volatility20": 0.0139068075196358}, {"Date": "2024-09-30", "Close": 232.74, "MA20": 223.5135, "Volatility20": 0.0148122009867609}, {"Date": "2024-10-01", "Close": 225.96, "MA20": 223.68500000000003, "Volatility20": 0.015011327595665}, {"Date": "2024-10-02", "Close": 226.53, "MA20": 223.981, "Volatility20": 0.0148460847470809}, {"Date": "2024-10-03", "Close": 225.42, "MA20": 224.14500000000004, "Volatility20": 0.0148509459801126}, {"Date": "2024-10-04", "Close": 226.55, "MA20": 224.4435, "Volatility20": 0.0147592392374819}, {"Date": "2024-10-07", "Close": 221.45, "MA20": 224.4825, "Volatility20": 0.0157031495721578}, {"Date": "2024-10-08", "Close": 225.52, "MA20": 224.765, "Volatility20": 0.0161778047716344}, {"Date": "2024-10-09", "Close": 229.29, "MA20": 225.1085, "Volatility20": 0.0163868920996768}, {"Date": "2024-10-10", "Close": 228.79, "MA20": 225.4215, "Volatility20": 0.0164077216708613}, {"Date": "2024-10-11", "Close": 227.3, "MA20": 225.6735, "Volatility20": 0.0164966592515085}, {"Date": "2024-10-14", "Close": 231.05, "MA20": 226.422, "Volatility20": 0.0153223798180755}, {"Date": "2024-10-15", "Close": 233.59, "MA20": 227.27400000000003, "Volatility20": 0.015409901086787}, {"Date": "2024-10-16", "Close": 231.53, "MA20": 227.828, "Volatility20": 0.0152848513321209}, {"Date": "2024-10-17", "Close": 231.89, "MA20": 227.9915, "Volatility20": 0.0129513031575695}, {"Date": "2024-10-18", "Close": 234.74, "MA20": 228.331, "Volatility20": 0.0131665675277404}, {"Date": "2024-10-21", "Close": 236.22, "MA20": 228.831, "Volatility20": 0.0130246796318538}, {"Date": "2024-10-22", "Close": 235.6, "MA20": 229.255, "Volatility20": 0.0130620895334082}, {"Date": "2024-10-23", "Close": 230.51, "MA20": 229.4745, "Volatility20": 0.014030467752083}, {"Date": "2024-10-24", "Close": 230.32, "MA20": 229.627, "Volatility20": 0.0140033333335804}, {"Date": "2024-10-25", "Close": 231.16, "MA20": 229.80800000000005, "Volatility20": 0.0140180747696573}, {"Date": "2024-10-28", "Close": 233.14, "MA20": 229.828, "Volatility20": 0.0131784434907788}, {"Date": "2024-10-29", "Close": 233.41, "MA20": 230.2005, "Volatility20": 0.0112305237505235}, {"Date": "2024-10-30", "Close": 229.85, "MA20": 230.3665, "Volatility20": 0.0118469995590683}, {"Date": "2024-10-31", "Close": 225.66, "MA20": 230.3785, "Volatility20": 0.0125389329127544}, {"Date": "2024-11-01", "Close": 222.67, "MA20": 230.1845, "Volatility20": 0.0128261843131638}, {"Date": "2024-11-04", "Close": 221.77, "MA20": 230.2005, "Volatility20": 0.0118036928249814}, {"Date": "2024-11-05", "Close": 223.2, "MA20": 230.0845, "Volatility20": 0.0111147089339735}, {"Date": "2024-11-06", "Close": 222.48, "MA20": 229.744, "Volatility20": 0.010361854128567}, {"Date": "2024-11-07", "Close": 227.23, "MA20": 229.66600000000005, "Volatility20": 0.0115436689556899}, {"Date": "2024-11-08", "Close": 226.96, "MA20": 229.64900000000003, "Volatility20": 0.0114533804466001}, {"Date": "2024-11-11", "Close": 224.23, "MA20": 229.308, "Volatility20": 0.0110585069773572}, {"Date": "2024-11-12", "Close": 224.23, "MA20": 228.84, "Volatility20": 0.0106745932941583}, {"Date": "2024-11-13", "Close": 225.12, "MA20": 228.5195, "Volatility20": 0.0106268118152489}, {"Date": "2024-11-14", "Close": 228.22, "MA20": 228.336, "Volatility20": 0.0111411009096752}, {"Date": "2024-11-15", "Close": 225.0, "MA20": 227.849, "Volatility20": 0.0110799709492886}, {"Date": "2024-11-18", "Close": 228.02, "MA20": 227.439, "Volatility20": 0.0114701445058832}, {"Date": "2024-11-19", "Close": 228.28, "MA20": 227.073, "Volatility20": 0.0114850962131891}, {"Date": "2024-11-20", "Close": 229.0, "MA20": 226.9975, "Volatility20": 0.0104975297038859}, {"Date": "2024-11-21", "Close": 228.52, "MA20": 226.90750000000003, "Volatility20": 0.0105048738672613}, {"Date": "2024-11-22", "Close": 229.87, "MA20": 226.843, "Volatility20": 0.0105620323420334}, {"Date": "2024-11-25", "Close": 232.87, "MA20": 226.8295, "Volatility20": 0.0108034096423129}, {"Date": "2024-11-26", "Close": 235.06, "MA20": 226.91200000000003, "Volatility20": 0.0110055062226566}, {"Date": "2024-11-27", "Close": 234.93, "MA20": 227.166, "Volatility20": 0.0103774295750265}, {"Date": "2024-11-29", "Close": 237.33, "MA20": 227.7495, "Volatility20": 0.0094940541412777}, {"Date": "2024-12-02", "Close": 239.59, "MA20": 228.5955, "Volatility20": 0.0088403268730993}, {"Date": "2024-12-03", "Close": 242.65, "MA20": 229.6395, "Volatility20": 0.008864218261178}, {"Date": "2024-12-04", "Close": 243.01, "MA20": 230.63, "Volatility20": 0.0088776597484434}, {"Date": "2024-12-05", "Close": 243.04, "MA20": 231.658, "Volatility20": 0.0087590603500391}, {"Date": "2024-12-06", "Close": 242.84, "MA20": 232.4385, "Volatility20": 0.0078673048458325}, {"Date": "2024-12-09", "Close": 246.75, "MA20": 233.428, "Volatility20": 0.0082806248425315}, {"Date": "2024-12-10", "Close": 247.77, "MA20": 234.605, "Volatility20": 0.0073473687151877}, {"Date": "2024-12-11", "Close": 246.49, "MA20": 235.718, "Volatility20": 0.0076192699767598}, {"Date": "2024-12-12", "Close": 247.96, "MA20": 236.86, "Volatility20": 0.0076212727885199}, {"Date": "2024-12-13", "Close": 248.13, "MA20": 237.85550000000003, "Volatility20": 0.0073747331057439}, {"Date": "2024-12-16", "Close": 251.04, "MA20": 239.15750000000003, "Volatility20": 0.0061582129088403}, {"Date": "2024-12-17", "Close": 253.48, "MA20": 240.4305, "Volatility20": 0.0059602582874898}, {"Date": "2024-12-18", "Close": 248.05, "MA20": 241.419, "Volatility20": 0.0084209122724987}, {"Date": "2024-12-19", "Close": 249.79, "MA20": 242.4585, "Volatility20": 0.0084400149858546}, {"Date": "2024-12-20", "Close": 254.49, "MA20": 243.757, "Volatility20": 0.0088783677850429}, {"Date": "2024-12-23", "Close": 255.27, "MA20": 245.027, "Volatility20": 0.0088931270540565}, {"Date": "2024-12-24", "Close": 258.2, "MA20": 246.2935, "Volatility20": 0.0088276163432086}, {"Date": "2024-12-26", "Close": 259.02, "MA20": 247.4915, "Volatility20": 0.0087817206558278}, {"Date": "2024-12-27", "Close": 255.59, "MA20": 248.52450000000005, "Volatility20": 0.0096153684874781}, {"Date": "2024-12-30", "Close": 252.2, "MA20": 249.26800000000003, "Volatility20": 0.0102624169818317}, {"Date": "2024-12-31", "Close": 250.42, "MA20": 249.8095, "Volatility20": 0.0103846843368809}];
+
+const data = RAW.map(d => ({
+  date: d.Date,
+  close: d.Close,
+  ma20: d.MA20 === "" ? null : d.MA20,
+  vol: d.Volatility20 === "" ? null : d.Volatility20
+}));
+
+const startInput = document.getElementById('startDate');
+const endInput = document.getElementById('endDate');
+const minDate = data[0].date, maxDate = data[data.length-1].date;
+startInput.min = minDate; startInput.max = maxDate;
+endInput.min = minDate; endInput.max = maxDate;
+startInput.value = minDate; endInput.value = maxDate;
+
+let priceChart, volChart;
+
+function fmtPct(v){ return (v*100).toFixed(2) + '%'; }
+
+function render(){
+  const s = startInput.value, e = endInput.value;
+  const filtered = data.filter(d => d.date >= s && d.date <= e);
+  if(filtered.length === 0) return;
+
+  const first = filtered[0], last = filtered[filtered.length-1];
+  const changePct = ((last.close/first.close)-1)*100;
+  const closes = filtered.map(d=>d.close);
+  const maxC = Math.max(...closes), minC = Math.min(...closes);
+  const maxDay = filtered.find(d=>d.close===maxC);
+  const minDay = filtered.find(d=>d.close===minC);
+  const vols = filtered.map(d=>d.vol).filter(v=>v!==null);
+  const avgVol = vols.length ? vols.reduce((a,b)=>a+b,0)/vols.length : null;
+
+  document.getElementById('kpis').innerHTML = `
+    <div class="kpi"><div class="label">구간 데이터 포인트</div><div class="value">${filtered.length}개</div></div>
+    <div class="kpi"><div class="label">구간 변화율</div><div class="value ${changePct>=0?'up':'down'}">${changePct>=0?'+':''}${changePct.toFixed(1)}%</div><div class="sub">${first.close.toFixed(2)} → ${last.close.toFixed(2)}</div></div>
+    <div class="kpi"><div class="label">구간 최고가</div><div class="value">${maxC.toFixed(2)}</div><div class="sub">${maxDay.date}</div></div>
+    <div class="kpi"><div class="label">구간 최저가</div><div class="value">${minC.toFixed(2)}</div><div class="sub">${minDay.date}</div></div>
+    <div class="kpi"><div class="label">평균 20일 변동성</div><div class="value">${avgVol!==null ? fmtPct(avgVol) : '-'}</div></div>
+  `;
+
+  const labels = filtered.map(d=>d.date);
+  const gridColor = 'rgba(128,140,160,0.15)';
+  const tickColor = getComputedStyle(document.documentElement).getPropertyValue('--muted').trim();
+
+  if(priceChart) priceChart.destroy();
+  priceChart = new Chart(document.getElementById('priceChart'), {
+    type:'line',
+    data:{ labels, datasets:[
+      { label:'종가', data:filtered.map(d=>d.close), borderColor:'#5b8def', borderWidth:1.5, pointRadius:0, tension:0.15 },
+      { label:'20일 이동평균', data:filtered.map(d=>d.ma20), borderColor:'#3ddc97', borderWidth:1.5, pointRadius:0, tension:0.15 }
+    ]},
+    options:{
+      responsive:true, maintainAspectRatio:false,
+      interaction:{mode:'index', intersect:false},
+      scales:{
+        x:{ ticks:{ color:tickColor, maxTicksLimit:8 }, grid:{ color:gridColor } },
+        y:{ ticks:{ color:tickColor }, grid:{ color:gridColor } }
+      },
+      plugins:{ legend:{ labels:{ color:tickColor } } }
+    }
+  });
+
+  if(volChart) volChart.destroy();
+  volChart = new Chart(document.getElementById('volChart'), {
+    type:'line',
+    data:{ labels, datasets:[
+      { label:'20일 변동성', data:filtered.map(d=>d.vol), borderColor:'#e0a458', borderWidth:1.5, pointRadius:0, tension:0.15, fill:true, backgroundColor:'rgba(224,164,88,0.08)' }
+    ]},
+    options:{
+      responsive:true, maintainAspectRatio:false,
+      interaction:{mode:'index', intersect:false},
+      scales:{
+        x:{ ticks:{ color:tickColor, maxTicksLimit:8 }, grid:{ color:gridColor } },
+        y:{ ticks:{ color:tickColor, callback:v=>(v*100).toFixed(1)+'%' }, grid:{ color:gridColor } }
+      },
+      plugins:{ legend:{ labels:{ color:tickColor } } }
+    }
+  });
+}
+
+document.querySelectorAll('.presets button').forEach(btn=>{
+  btn.addEventListener('click', ()=>{
+    document.querySelectorAll('.presets button').forEach(b=>b.classList.remove('active'));
+    btn.classList.add('active');
+    const range = btn.dataset.range;
+    const endDate = new Date(maxDate);
+    let start = new Date(minDate);
+    if(range==='1m'){ start = new Date(endDate); start.setMonth(start.getMonth()-1); }
+    if(range==='3m'){ start = new Date(endDate); start.setMonth(start.getMonth()-3); }
+    if(range==='6m'){ start = new Date(endDate); start.setMonth(start.getMonth()-6); }
+    const toISO = d => d.toISOString().slice(0,10);
+    startInput.value = range==='all' ? minDate : toISO(start);
+    endInput.value = maxDate;
+    render();
+  });
+});
+
+startInput.addEventListener('change', render);
+endInput.addEventListener('change', render);
+
+render();
+</script>
+</body>
+</html>
